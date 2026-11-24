@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
+    --blue: rgb(200,225,252);
     --purple: rgb(158,111,195);
     --purple-dark: #5c348f;
     --lime: rgb(193,255,5);
@@ -143,8 +144,6 @@
   .btn-ghost:hover:not(:disabled) { border-color: var(--purple); color: var(--purple-dark); }
   .btn-lime { background: var(--lime); color: var(--dark); }
   .btn-lime:hover:not(:disabled) { background: #aee600; }
-  .btn-warn { background: var(--warn); color: #fff; }
-  .btn-warn:hover:not(:disabled) { background: #e66820; }
   .btn:disabled { opacity: .5; cursor: not-allowed; transform: none!important; }
 
   .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
@@ -322,7 +321,7 @@
       <div class="grid grid-2 mt-24">
         <div>
           <label for="candidateNumber">Номер кандидата</label>
-          <input type="text" id="candidateNumber" placeholder="Например: К-2024-001" autocomplete="off">
+          <input type="text" id="candidateNumber" placeholder="Например: 345" autocomplete="off">
         </div>
         <div>
           <label for="candidateDate">Текущая дата</label>
@@ -406,7 +405,6 @@
       <div class="row between mt-24">
         <div class="row">
           <button class="btn btn-ghost" id="btnResetTyping">Сбросить (1 раз)</button>
-          <button class="btn btn-warn" id="btnStopTyping">Стоп (тест)</button>
         </div>
         <button class="btn btn-primary" id="btnFinishAttempt" disabled>Завершить попытку</button>
       </div>
@@ -577,6 +575,7 @@ const CRITERIA = {
   experienced: { speed: 300, accuracy: 97, label: 'Продвинутый уровень' }
 };
 
+const PART2_TARGET_MIN_SCORE = 4; // Целевые значения в задании 2: 4 и 5
 const PART2_DURATION = 10 * 60; // 10 минут
 const STORAGE_RESULT = 'otp_result_v2';
 
@@ -618,7 +617,6 @@ const DOM = {
   statAccuracy: document.getElementById('statAccuracy'),
   statChars: document.getElementById('statChars'),
   btnResetTyping: document.getElementById('btnResetTyping'),
-  btnStopTyping: document.getElementById('btnStopTyping'),
   btnFinishAttempt: document.getElementById('btnFinishAttempt'),
   attemptResult: document.getElementById('attemptResult'),
   toastContainer: document.getElementById('toastContainer')
@@ -673,6 +671,15 @@ function computeTypingStats(target, typed, startTime) {
   return { speed, accuracy, typedLen, targetLen, correct };
 }
 
+function applyTargetColor(element, value, targetValue) {
+  element.classList.remove('value-ok', 'value-warn', 'value-bad');
+  if (value < targetValue) {
+    element.classList.add('value-bad');
+  } else {
+    element.classList.add('value-ok');
+  }
+}
+
 /* ================= ЭКРАН 1 ================= */
 document.getElementById('btnStart').addEventListener('click', () => {
   const number = DOM.candidateNumber.value.trim();
@@ -716,7 +723,6 @@ DOM.btnToTyping.addEventListener('click', () => {
   DOM.typingInput.value = '';
   DOM.typingInput.disabled = false;
   DOM.btnFinishAttempt.disabled = true;
-  DOM.btnStopTyping.disabled = true;
   DOM.btnResetTyping.disabled = false;
   DOM.attemptResult.classList.add('hidden');
   updateTypingStats();
@@ -738,7 +744,7 @@ DOM.typingInput.addEventListener('select', () => {
   DOM.typingInput.setSelectionRange(len, len);
 });
 
-function colorizeSpeed(element, speed, threshold, level) {
+function colorizeLiveSpeed(element, speed, threshold, level) {
   element.classList.remove('value-ok', 'value-warn', 'value-bad');
   const badLimit = level === 'experienced' ? 200 : 150;
   if (speed < badLimit) element.classList.add('value-bad');
@@ -756,7 +762,7 @@ function updateTypingStats() {
   DOM.statAccuracy.textContent = stats.accuracy + '%';
   DOM.statChars.textContent = stats.typedLen;
 
-  colorizeSpeed(DOM.statSpeed, stats.speed, crit.speed, state.level);
+  colorizeLiveSpeed(DOM.statSpeed, stats.speed, crit.speed, state.level);
 
   const frag = document.createDocumentFragment();
   for (let i = 0; i < target.length; i++) {
@@ -776,7 +782,6 @@ function updateTypingStats() {
   DOM.sampleText.replaceChildren(frag);
 
   DOM.btnFinishAttempt.disabled = stats.typedLen < 10;
-  DOM.btnStopTyping.disabled = !state.typingStart;
 }
 
 DOM.typingInput.addEventListener('input', () => {
@@ -796,10 +801,9 @@ DOM.btnResetTyping.addEventListener('click', () => {
   DOM.typingInput.focus();
 });
 
-DOM.btnStopTyping.addEventListener('click', () => finishAttempt(true));
-DOM.btnFinishAttempt.addEventListener('click', () => finishAttempt(false));
+DOM.btnFinishAttempt.addEventListener('click', finishAttempt);
 
-function finishAttempt(stopped) {
+function finishAttempt() {
   const target = normalizeTarget(TEXTS[state.level] || '');
   const typed = normalizeInput(DOM.typingInput.value);
   const stats = computeTypingStats(target, typed, state.typingStart);
@@ -808,14 +812,12 @@ function finishAttempt(stopped) {
     attempt: state.attempt,
     speed: stats.speed,
     accuracy: stats.accuracy,
-    stopped,
     typedLen: stats.typedLen,
     targetLen: stats.targetLen
   });
 
   DOM.typingInput.disabled = true;
   DOM.btnFinishAttempt.disabled = true;
-  DOM.btnStopTyping.disabled = true;
   DOM.btnResetTyping.disabled = true;
 
   if (state.attempt === 1) {
@@ -847,11 +849,8 @@ function showTypingResult() {
   speedEl.textContent = last.speed;
   accEl.textContent = last.accuracy + '%';
 
-  colorizeSpeed(speedEl, last.speed, crit.speed, state.level);
-  
-  accEl.classList.remove('value-ok', 'value-bad');
-  if (last.accuracy >= crit.accuracy) accEl.classList.add('value-ok');
-  else accEl.classList.add('value-bad');
+  applyTargetColor(speedEl, last.speed, crit.speed);
+  applyTargetColor(accEl, last.accuracy, crit.accuracy);
 
   showScreen('typingResult');
 }
@@ -963,17 +962,23 @@ function renderFinalSummary(payload) {
 
   const speedVal = document.getElementById('finalSpeedValue');
   const accVal = document.getElementById('finalAccuracyValue');
+  const cardSpeed = document.getElementById('cardFinalSpeed');
+  const cardAcc = document.getElementById('cardFinalAccuracy');
+
+  cardSpeed.classList.remove('success-highlight');
+  cardAcc.classList.remove('success-highlight');
   
   if (final) {
     speedVal.textContent = final.speed;
     accVal.textContent = final.accuracy + '%';
     
-    // Динамическая окраска текста финальной скорости
-    colorizeSpeed(speedVal, final.speed, crit.speed, payload.level);
+    // Красным шрифтом выделяются показатели ниже целевых
+    applyTargetColor(speedVal, final.speed, crit.speed);
+    applyTargetColor(accVal, final.accuracy, crit.accuracy);
     
     if (final.speed >= crit.speed && final.accuracy >= crit.accuracy) {
-      document.getElementById('cardFinalSpeed').classList.add('success-highlight');
-      document.getElementById('cardFinalAccuracy').classList.add('success-highlight');
+      cardSpeed.classList.add('success-highlight');
+      cardAcc.classList.add('success-highlight');
     }
   }
 
@@ -985,16 +990,10 @@ function renderFinalSummary(payload) {
   if (scoreVal) {
     if (payload.part2Score != null) {
       scoreVal.innerHTML = payload.part2Score + '<small> / 5</small>';
-      
-      scoreVal.classList.remove('value-bad', 'value-warn', 'value-ok');
-      if (payload.part2Score <= 3) {
-        scoreVal.classList.add('value-bad');
-      } else if (payload.part2Score === 4) {
-        scoreVal.classList.add('value-warn');
-      } else if (payload.part2Score === 5) {
-        scoreVal.classList.add('value-ok');
-      }
+      // В задании 2 целевое значение — 4 и 5; ниже 4 выделяется красным шрифтом
+      applyTargetColor(scoreVal, payload.part2Score, PART2_TARGET_MIN_SCORE);
     } else {
+      scoreVal.classList.remove('value-bad', 'value-warn', 'value-ok');
       scoreVal.innerHTML = '—<small> / 5</small>';
     }
   }
@@ -1023,13 +1022,13 @@ function buildReportText(payload) {
   if (final) lines.push('Итог: ' + final.speed + ' зн/мин, точность ' + final.accuracy + '%');
   lines.push('');
   lines.push('ЗАДАНИЕ 2. РАБОТА С ТЕКСТОМ');
+  lines.push('Целевое значение: 4–5 из 5');
   lines.push('Время выполнения: ' + m + ' мин ' + s + ' сек');
   lines.push('Оценка (авто): ' + (payload.part2Score != null ? payload.part2Score + ' из 5' : '—'));
   lines.push('Текст ответа:');
   lines.push(payload.part2Answer ? payload.part2Answer : '(пусто)');
   lines.push('');
   lines.push('Завершено: ' + new Date(payload.finishedAt).toLocaleString('ru-RU'));
-  // ИСПРАВЛЕНИЕ: Используем \n для реального переноса строки вместо вывода текста "\n"
   return lines.join('\n');
 }
 
@@ -1068,7 +1067,6 @@ document.getElementById('btnCopyResult').addEventListener('click', () => {
   const yyyy = d.getFullYear();
   
   DOM.candidateDate.value = `${dd}.${mm}.${yyyy}`;
-  // Поле номера теперь всегда очищается при загрузке, игнорируя старые данные в localStorage
   DOM.candidateNumber.value = '';
 })();
 </script>
